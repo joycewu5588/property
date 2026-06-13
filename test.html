@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>測試</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body style="background:#09090b;color:#fff">
+<div id="root" style="padding:24px;font-size:18px">純 HTML 顯示中…如果只看到這行，表示 JS/CDN 沒載入</div>
+<script type="text/babel" data-presets="react">
+const { useState } = React;
+function Test() {
+  const [n, setN] = useState(0);
+  return (
+    <div style={{padding:24}}>
+      <h1 style={{fontSize:24,fontWeight:'bold'}}>✅ 測試成功</h1>
+      <p>React + Babel + Tailwind 都正常運作</p>
+      <button onClick={() => setN(n+1)} style={{marginTop:16,padding:'8px 16px',background:'#2563eb',borderRadius:8,color:'#fff'}}>
+        點我 {n}
+      </button>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Test />);
+</script>
+</body>
+</html>
