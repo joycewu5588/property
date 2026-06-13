@@ -9,8 +9,8 @@
 <meta name="theme-color" content="#09090b" />
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet" />
 <meta name="googlebot" content="noindex, nofollow" />
-<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMTgwIj4KPHJlY3Qgd2lkdGg9IjE4MCIgaGVpZ2h0PSIxODAiIHJ4PSI0MCIgZmlsbD0iI2ZmZmZmZiIvPgo8dGV4dCB4PSIxNDIiIHk9IjE1MCIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sSGVsdmV0aWNhLEFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNzgiIGZvbnQtd2VpZ2h0PSI4MDAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNkNGFmMzciPiQ8L3RleHQ+Cjwvc3ZnPgo=" />
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMTgwIj4KPHJlY3Qgd2lkdGg9IjE4MCIgaGVpZ2h0PSIxODAiIHJ4PSI0MCIgZmlsbD0iI2ZmZmZmZiIvPgo8dGV4dCB4PSIxNDIiIHk9IjE1MCIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sSGVsdmV0aWNhLEFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNzgiIGZvbnQtd2VpZ2h0PSI4MDAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNkNGFmMzciPiQ8L3RleHQ+Cjwvc3ZnPgo=" />
+<link rel="apple-touch-icon" href="icon.svg" />
+<link rel="icon" type="image/svg+xml" href="icon.svg" />
 <title>資產儀表板</title>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -21,12 +21,18 @@
   html, body, #root { background:#09090b; color:#fafafa; margin:0; padding:0; min-height:100vh; -webkit-tap-highlight-color:transparent; }
   body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 </style>
+<script>
+window.addEventListener('error', function(e){
+  var root = document.getElementById('root');
+  if(root){ root.innerHTML = '<div style="color:#f87171;padding:24px;font-family:monospace;font-size:13px;white-space:pre-wrap;word-break:break-all">載入發生錯誤：\n' + (e.message||e.error||'unknown') + '\n\n(請截圖給 Claude)</div>'; }
+});
+</script>
 </head>
 <body class="bg-zinc-950">
 <div id="root"></div>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo } = React;
-const { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } = Recharts;
+const { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } = (typeof Recharts !== 'undefined' ? Recharts : {});
 
 window.storage = {
   get: async (key) => { const v = localStorage.getItem(key); return v === null ? null : { value: v }; },
