@@ -1,6 +1,15 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
+<script>
+window.onerror = function(msg, src, line, col, error) {
+  var root = document.getElementById('root');
+  if (root) {
+    root.innerHTML = '<div style="color:#f87171;background:#000;padding:20px;font-family:monospace;font-size:13px;white-space:pre-wrap;word-break:break-all;min-height:100vh">❌ 錯誤：\n' + msg + '\n\n行號：' + line + ':' + col + '\n\n(請截圖給 Claude)</div>';
+  }
+  return true;
+};
+</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -21,7 +30,7 @@
 </style>
 </head>
 <body class="bg-zinc-950">
-<div id="root"><div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#71717a;font-family:-apple-system,sans-serif">載入中…（第一次開啟需幾秒）</div></div>
+<div id="root"><div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#22d3ee;font-family:sans-serif;font-size:18px">⏳ HTML 已載入，等待程式編譯…</div></div>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo } = React;
 const { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } = (typeof Recharts !== 'undefined' ? Recharts : {});
