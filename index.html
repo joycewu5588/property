@@ -9,10 +9,11 @@
 <meta name="theme-color" content="#09090b" />
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet" />
 <meta name="googlebot" content="noindex, nofollow" />
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMTgwIj4KPHJlY3Qgd2lkdGg9IjE4MCIgaGVpZ2h0PSIxODAiIHJ4PSI0MCIgZmlsbD0iI2ZmZmZmZiIvPgo8dGV4dCB4PSIxNDIiIHk9IjE1MCIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sSGVsdmV0aWNhLEFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNzgiIGZvbnQtd2VpZ2h0PSI4MDAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNkNGFmMzciPiQ8L3RleHQ+Cjwvc3ZnPgo=" />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMTgwIj4KPHJlY3Qgd2lkdGg9IjE4MCIgaGVpZ2h0PSIxODAiIHJ4PSI0MCIgZmlsbD0iI2ZmZmZmZiIvPgo8dGV4dCB4PSIxNDIiIHk9IjE1MCIgZm9udC1mYW1pbHk9Ii1hcHBsZS1zeXN0ZW0sSGVsdmV0aWNhLEFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNzgiIGZvbnQtd2VpZ2h0PSI4MDAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiNkNGFmMzciPiQ8L3RleHQ+Cjwvc3ZnPgo=" />
 <title>資產儀表板</title>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
 <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -22,7 +23,7 @@
 </style>
 </head>
 <body class="bg-zinc-950">
-<div id="root"><div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#71717a;font-family:-apple-system,sans-serif">載入中…（第一次開啟需幾秒）</div></div>
+<div id="root"></div>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo } = React;
 const { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } = Recharts;
@@ -222,6 +223,32 @@ function AssetDashboard() {
   const [showCompanyValue, setShowCompanyValue] = useState(true);
   const [snapshotMode, setSnapshotMode] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'ok' | 'fail'
+  const [rateStatus, setRateStatus] = useState(null); // null | 'loading' | 'ok' | 'fail'
+
+  // 一鍵更新匯率（去抓公開匯率 API，只抓匯率、不傳任何個人資料）
+  const updateRates = async () => {
+    setRateStatus('loading');
+    try {
+      // 以台幣為基準，抓各幣別兌台幣
+      const res = await fetch('https://open.er-api.com/v6/latest/TWD');
+      const data = await res.json();
+      if (!data || !data.rates) throw new Error('no data');
+      // API 回傳的是「1 TWD = X 外幣」，要反過來變成「1 外幣 = ? TWD」
+      const r = data.rates;
+      const next = { TWD: 1 };
+      ['HKD', 'USD', 'JPY', 'CNY'].forEach(cur => {
+        if (r[cur] && r[cur] > 0) next[cur] = Math.round((1 / r[cur]) * 10000) / 10000;
+      });
+      const merged = { ...rates, ...next };
+      await save('rates', setRates, merged);
+      setRateStatus('ok');
+      setTimeout(() => setRateStatus(null), 3000);
+    } catch (err) {
+      console.error('匯率更新失敗', err);
+      setRateStatus('fail');
+      setTimeout(() => setRateStatus(null), 4000);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -915,6 +942,18 @@ function AssetDashboard() {
           ))}
         </div>
         <p className="text-xs text-zinc-500 mt-3">匯率改完所有頁面自動重算</p>
+        <button
+          onClick={updateRates}
+          disabled={rateStatus === 'loading'}
+          className="w-full mt-3 px-3 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium">
+          {rateStatus === 'loading' ? '更新中…' :
+           rateStatus === 'ok' ? '✓ 已更新今日匯率' :
+           rateStatus === 'fail' ? '⚠️ 更新失敗，請手動填' :
+           '🔄 一鍵更新今日匯率'}
+        </button>
+        <p className="text-[11px] text-zinc-600 mt-2 leading-relaxed">
+          點此會連到公開匯率服務抓今日匯率（只抓匯率，不會傳出你的任何資料）。平常不點則完全不對外連線。
+        </p>
       </Card>
 
       <Card title="資料備份">
@@ -1677,7 +1716,75 @@ function SnapshotModal({ scope, existingAssets, existingLiab, assetTemplate, lia
 }
 
 
-ReactDOM.createRoot(document.getElementById('root')).render(<AssetDashboard />);
+function PasswordGate() {
+  const PASSWORD = '5588';
+  const [unlocked, setUnlocked] = useState(false);
+  const [input, setInput] = useState('');
+  const [error, setError] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    // 同一支手機若之前選過記住，就不用再輸入
+    try {
+      if (localStorage.getItem('unlocked') === 'yes') setUnlocked(true);
+    } catch {}
+    setChecking(false);
+  }, []);
+
+  const tryUnlock = (remember) => {
+    if (input === PASSWORD) {
+      setUnlocked(true);
+      setError(false);
+      if (remember) { try { localStorage.setItem('unlocked', 'yes'); } catch {} }
+    } else {
+      setError(true);
+      setInput('');
+    }
+  };
+
+  if (checking) return null;
+  if (unlocked) return <AssetDashboard />;
+
+  return (
+    <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center px-6">
+      <div className="w-20 h-20 rounded-3xl bg-white flex items-center justify-center mb-6 relative shadow-lg">
+        <span className="absolute bottom-2 right-3 text-3xl font-extrabold" style={{color:'#d4af37'}}>$</span>
+      </div>
+      <h1 className="text-zinc-100 text-xl font-bold mb-1">資產儀表板</h1>
+      <p className="text-zinc-500 text-sm mb-6">請輸入密碼</p>
+
+      <input
+        type="password"
+        inputMode="numeric"
+        autoFocus
+        value={input}
+        onChange={e => { setInput(e.target.value); setError(false); }}
+        onKeyDown={e => { if (e.key === 'Enter') tryUnlock(false); }}
+        placeholder="••••"
+        className={`w-full max-w-xs px-4 py-3 bg-zinc-900 border rounded-xl text-center text-2xl tracking-widest text-zinc-100 focus:outline-none ${error ? 'border-rose-500' : 'border-zinc-700 focus:border-blue-500'}`}
+      />
+      {error && <p className="text-rose-400 text-sm mt-2">密碼錯誤</p>}
+
+      <div className="w-full max-w-xs mt-4 space-y-2">
+        <button
+          onClick={() => tryUnlock(false)}
+          className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium">
+          解鎖
+        </button>
+        <button
+          onClick={() => tryUnlock(true)}
+          className="w-full px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-sm">
+          解鎖並記住這支手機
+        </button>
+      </div>
+      <p className="text-[11px] text-zinc-600 mt-6 text-center max-w-xs leading-relaxed">
+        提示：這是簡易密碼鎖，用來防止他人隨手打開。你的資料仍存在本機、不會外流。
+      </p>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<PasswordGate />);
 </script>
 </body>
 </html>
