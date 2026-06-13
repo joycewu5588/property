@@ -1,0 +1,1683 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="資產儀表板" />
+<meta name="theme-color" content="#09090b" />
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet" />
+<meta name="googlebot" content="noindex, nofollow" />
+<title>資產儀表板</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  html, body, #root { background:#09090b; color:#fafafa; margin:0; padding:0; min-height:100vh; -webkit-tap-highlight-color:transparent; }
+  body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+</style>
+</head>
+<body class="bg-zinc-950">
+<div id="root"><div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#71717a;font-family:-apple-system,sans-serif">載入中…（第一次開啟需幾秒）</div></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo } = React;
+const { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } = Recharts;
+
+window.storage = {
+  get: async (key) => { const v = localStorage.getItem(key); return v === null ? null : { value: v }; },
+  set: async (key, value) => { localStorage.setItem(key, value); return { value }; },
+};
+
+const mkIcon = (emoji) => ({ className = '' } = {}) => <span className={className} style={{display:'inline-flex',alignItems:'center',justifyContent:'center',lineHeight:1}}>{emoji}</span>;
+const Plus = mkIcon('＋');
+const Trash2 = mkIcon('🗑️');
+const TrendingUp = mkIcon('📈');
+const Wallet = mkIcon('👛');
+const AlertCircle = mkIcon('⚠️');
+const Download = mkIcon('⬇️');
+const Upload = mkIcon('⬆️');
+const X = mkIcon('✕');
+const Check = mkIcon('✓');
+const Sparkles = mkIcon('✨');
+const Building2 = mkIcon('🏢');
+const User = mkIcon('👤');
+const ToggleLeft = mkIcon('⬜');
+const ToggleRight = mkIcon('🟦');
+const SettingsIcon = mkIcon('⚙️');
+const Stethoscope = mkIcon('🩺');
+const Activity = mkIcon('📊');
+const Shield = mkIcon('🛡️');
+const Droplet = mkIcon('💧');
+const PieIcon = mkIcon('🥧');
+const Users = mkIcon('👥');
+const Globe = mkIcon('🌐');
+
+
+const ASSET_CATEGORIES = ['現金存款', '股票/基金', '債券', '房產', '應收款', '庫存', '車輛', '預售屋', '其他'];
+const LIQUIDITY_LEVELS = [
+  { key: 'instant', label: '立即可動', desc: '當下就能用', color: 'text-emerald-400', weight: 1.0 },
+  { key: 'week', label: '一週內', desc: '解定存/賣股約一週', color: 'text-cyan-400', weight: 0.9 },
+  { key: 'month', label: '一個月內', desc: '需要時間處理', color: 'text-blue-400', weight: 0.6 },
+  { key: 'long', label: '長期', desc: '房產/預售屋等', color: 'text-zinc-500', weight: 0.0 },
+];
+const LIAB_CATEGORIES = ['房貸', '向公司借款', '向親友借款', '車貸', '質押貸款', '其他'];
+const CURRENCIES = ['TWD', 'HKD', 'USD', 'JPY', 'CNY'];
+const HOLDERS_PERSONAL = ['你', '先生', '共同', '其他'];
+const HOLDERS_COMPANY = ['公司'];
+
+const ASSET_COLORS = {
+  '現金存款': '#22d3ee', '股票/基金': '#34d399', '債券': '#a78bfa',
+  '房產': '#fbbf24', '應收款': '#f472b6', '庫存': '#fb923c',
+  '車輛': '#60a5fa', '預售屋': '#f87171', '其他': '#71717a',
+};
+
+const SEED_RATES = { TWD: 1.0, HKD: 4.10, USD: 32.0, JPY: 0.21, CNY: 4.50 };
+const TODAY = new Date().toISOString().slice(0, 10);
+
+// 個人資產範本：每次新增紀錄都會自動列出這些項目
+const TEMPLATE_PERSONAL_ASSETS = [
+  // 香港 - Joyce
+  { name: 'Joyce 中銀戶口', category: '現金存款', holder: '你', currency: 'HKD', liquidity: 'instant' },
+  { name: 'Joyce 富途股票', category: '股票/基金', holder: '你', currency: 'USD', liquidity: 'week' },
+  { name: 'Joyce 台新香港 (定存+債券+FCN)', category: '債券', holder: '你', currency: 'HKD', liquidity: 'week', note: '💵 含朋友代管10萬美金 | 多為短期定存等標的, 約一週可解' },
+  // 香港 - Gary
+  { name: 'Gary 中銀戶口', category: '現金存款', holder: '先生', currency: 'HKD', liquidity: 'instant' },
+  { name: 'Gary 富途股票', category: '股票/基金', holder: '先生', currency: 'HKD', liquidity: 'week' },
+  // 台灣 - Joyce
+  { name: 'Joyce 台灣戶口 1', category: '現金存款', holder: '你', currency: 'TWD', liquidity: 'instant' },
+  { name: 'Joyce 台灣戶口 2', category: '現金存款', holder: '你', currency: 'TWD', liquidity: 'instant' },
+  { name: 'Joyce 台灣戶口 3', category: '現金存款', holder: '你', currency: 'TWD', liquidity: 'instant' },
+  { name: 'Joyce 台灣投資戶口', category: '股票/基金', holder: '你', currency: 'TWD', liquidity: 'week' },
+  // 台灣 - Gary
+  { name: 'Gary 台灣儲蓄戶口', category: '現金存款', holder: '先生', currency: 'TWD', liquidity: 'instant' },
+  { name: 'Gary 台灣投資戶口', category: '股票/基金', holder: '先生', currency: 'TWD', liquidity: 'week' },
+  // 日本
+  { name: '日本房產', category: '房產', holder: '共同', currency: 'JPY', liquidity: 'long', note: '成本6千萬, 現估約1億' },
+  { name: '日本帳戶現金', category: '現金存款', holder: '共同', currency: 'JPY', liquidity: 'month', note: '日本帳戶, 跨境提取需時間' },
+  // 台灣不動產
+  { name: '宏築信義預售屋 (已付累計)', category: '預售屋', holder: '共同', currency: 'TWD', liquidity: 'long' },
+  // 應收
+  { name: '妹妹欠款', category: '應收款', holder: '你', currency: 'TWD', liquidity: 'month', note: '每月回2.5萬' },
+];
+
+// 初始種子資料 — 來自 2026-05-11 實際填寫
+const SEED_DATE = '2026-05-11';
+const SEED_PERSONAL_ASSETS = TEMPLATE_PERSONAL_ASSETS.map(t => {
+  const known = {
+    'Joyce 中銀戶口': 100000,
+    'Joyce 富途股票': 228000,
+    'Joyce 台新香港 (定存+債券+FCN)': 16300000,
+    'Gary 中銀戶口': 200000,
+    'Gary 富途股票': 2800000,
+    'Joyce 台灣戶口 1': 15000,
+    'Joyce 台灣戶口 2': 25000,
+    'Joyce 台灣戶口 3': 20000,
+    'Joyce 台灣投資戶口': 8240000,
+    'Gary 台灣儲蓄戶口': 258000,
+    'Gary 台灣投資戶口': 82000000,
+    '日本房產': 100000000,
+    '日本帳戶現金': 7000000,
+    '宏築信義預售屋 (已付累計)': 31370000,
+    '妹妹欠款': 800000,
+  };
+  return { ...t, amount: known[t.name] || 0, note: t.note || '' };
+});
+
+const TEMPLATE_PERSONAL_LIABILITIES = [
+  { name: '港存台貸', category: '質押貸款', counterparty: '台灣銀行', currency: 'TWD', urgency: 'low', note: '💵 120萬美金質押在台新香港 | 利息：月還約6.5萬TWD（只還息, 本金無壓力）' },
+  { name: '車貸', category: '車貸', counterparty: '銀行', currency: 'TWD', urgency: 'medium', note: '🚗 利息：月還約6萬TWD | 剩餘 28 期' },
+  { name: '欠嬸嬸', category: '向親友借款', counterparty: '嬸嬸', currency: 'HKD', urgency: 'high', note: '⚠️ 不確定何時要還, 需保留流動現金應付 | 已丟到Joyce帳戶投資' },
+  { name: 'Joyce 個人欠公司(貸款)', category: '向公司借款', counterparty: '公司', currency: 'HKD', urgency: 'medium', note: '每年還約200萬HKD本金' },
+  { name: 'Joyce 個人欠公司(借款)', category: '向公司借款', counterparty: '公司', currency: 'HKD', urgency: 'low', note: '暫不用還' },
+  { name: '朋友代管款項', category: '其他', counterparty: '朋友', currency: 'USD', urgency: 'low', note: '在Joyce台新香港戶口內, 目前持平' },
+];
+
+const SEED_PERSONAL_LIABILITIES = TEMPLATE_PERSONAL_LIABILITIES.map(t => {
+  const known = {
+    '港存台貸': 34000000,
+    '車貸': 1680000,
+    '欠嬸嬸': 3000000,
+    'Joyce 個人欠公司(貸款)': 18700000,
+    'Joyce 個人欠公司(借款)': 6000000,
+    '朋友代管款項': 100000,
+  };
+  return { ...t, amount: known[t.name] || 0, note: t.note || '' };
+});
+
+const TEMPLATE_COMPANY_ASSETS = [
+  { name: '公司房產', category: '房產', holder: '公司', currency: 'HKD', note: '保守估值' },
+  { name: '廣東道大樓 (1/3)', category: '房產', holder: '公司', currency: 'HKD', note: '5千萬 × 1/3, 保守估值' },
+  { name: '公司庫存', category: '庫存', holder: '公司', currency: 'HKD' },
+  { name: '公司 BOC 戶口', category: '現金存款', holder: '公司', currency: 'HKD' },
+  { name: '公司 HSBC 戶口', category: '現金存款', holder: '公司', currency: 'HKD' },
+  { name: '同事 A 欠公司', category: '應收款', holder: '公司', currency: 'HKD', note: '不離職不用還, 離職要還' },
+  { name: '同事 B 欠公司 (留職應收)', category: '應收款', holder: '公司', currency: 'HKD', note: '不離職不用還, 離職要還' },
+  { name: '同事 B 欠公司 (還款中)', category: '應收款', holder: '公司', currency: 'HKD', note: '每年回13萬, 持續還款中' },
+  { name: 'Joyce 欠公司 (貸款應收)', category: '應收款', holder: '公司', currency: 'HKD', note: '對應個人那筆貸款' },
+  { name: 'Joyce 欠公司 (借款應收)', category: '應收款', holder: '公司', currency: 'HKD', note: '對應個人那筆借款' },
+];
+
+const SEED_COMPANY_ASSETS = TEMPLATE_COMPANY_ASSETS.map(t => {
+  const known = {
+    '公司房產': 40000000,
+    '廣東道大樓 (1/3)': 16666667,
+    '公司庫存': 5499789,
+    '公司 BOC 戶口': 1560000,
+    '公司 HSBC 戶口': 550000,
+    '同事 A 欠公司': 800000,
+    '同事 B 欠公司 (留職應收)': 800000,
+    '同事 B 欠公司 (還款中)': 1086000,
+    'Joyce 欠公司 (貸款應收)': 18700000,
+    'Joyce 欠公司 (借款應收)': 6000000,
+  };
+  return { ...t, amount: known[t.name] || 0, note: t.note || '' };
+});
+
+const TEMPLATE_COMPANY_LIABILITIES = [
+  { name: 'HSBC Loan 9M', category: '房貸', counterparty: 'HSBC', currency: 'HKD', note: '2033/5 到期' },
+  { name: 'HSBC Loan 18M', category: '房貸', counterparty: 'HSBC', currency: 'HKD', note: '2041/2 到期' },
+  { name: 'HSBC Loan 25M', category: '房貸', counterparty: 'HSBC', currency: 'HKD', note: '2048/11 到期' },
+];
+
+const SEED_COMPANY_LIABILITIES = TEMPLATE_COMPANY_LIABILITIES.map(t => {
+  const known = {
+    'HSBC Loan 9M': 6750000,
+    'HSBC Loan 18M': 13275000,
+    'HSBC Loan 25M': 20380000,
+  };
+  return { ...t, amount: known[t.name] || 0, note: t.note || '' };
+});
+
+function withIds(rows, prefix) {
+  return rows.map((r, i) => ({ ...r, id: prefix + (Date.now() + i), date: SEED_DATE }));
+}
+
+const fmt = (n) => {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 0 }).format(Math.round(n));
+};
+
+const fmtShort = (n) => {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  if (abs >= 1e8) return `${sign}${(abs / 1e8).toFixed(2)}億`;
+  if (abs >= 1e4) return `${sign}${(abs / 1e4).toFixed(0)}萬`;
+  return `${sign}${abs.toFixed(0)}`;
+};
+
+function AssetDashboard() {
+  const [loading, setLoading] = useState(true);
+  const [personalAssets, setPersonalAssets] = useState([]);
+  const [personalLiab, setPersonalLiab] = useState([]);
+  const [companyAssets, setCompanyAssets] = useState([]);
+  const [companyLiab, setCompanyLiab] = useState([]);
+  const [rates, setRates] = useState(SEED_RATES);
+  const [selectedDate, setSelectedDate] = useState('');
+  const [tab, setTab] = useState('overview');
+  const [showCompanyValue, setShowCompanyValue] = useState(true);
+  const [snapshotMode, setSnapshotMode] = useState(null);
+  const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'ok' | 'fail'
+
+  useEffect(() => {
+    (async () => {
+      const load = async (k, fallback) => {
+        try { const x = await window.storage.get(k); return x ? JSON.parse(x.value) : fallback; }
+        catch { return fallback; }
+      };
+      setPersonalAssets(await load('personalAssets', withIds(SEED_PERSONAL_ASSETS, 'pa')));
+      setPersonalLiab(await load('personalLiab', withIds(SEED_PERSONAL_LIABILITIES, 'pl')));
+      setCompanyAssets(await load('companyAssets', withIds(SEED_COMPANY_ASSETS, 'ca')));
+      setCompanyLiab(await load('companyLiab', withIds(SEED_COMPANY_LIABILITIES, 'cl')));
+      setRates(await load('rates', SEED_RATES));
+      setLoading(false);
+    })();
+  }, []);
+
+  const save = async (key, setter, data) => {
+    setter(data);
+    setSaveStatus('saving');
+    const payload = JSON.stringify(data);
+    // 自動重試最多 4 次（0s, 1.5s, 3s, 5s）
+    const delays = [0, 1500, 3000, 5000];
+    for (let i = 0; i < delays.length; i++) {
+      if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
+      try {
+        await window.storage.set(key, payload);
+        const check = await window.storage.get(key);
+        if (check && check.value === payload) {
+          setSaveStatus('ok');
+          setTimeout(() => setSaveStatus(s => s === 'ok' ? null : s), 2000);
+          return true;
+        }
+      } catch (err) {
+        console.error(`儲存失敗（第 ${i + 1} 次）`, key, err);
+      }
+    }
+    setSaveStatus('fail');
+    return false;
+  };
+
+  // 手動補存全部資料
+  const saveAll = async () => {
+    setSaveStatus('saving');
+    const jobs = [
+      ['personalAssets', personalAssets],
+      ['personalLiab', personalLiab],
+      ['companyAssets', companyAssets],
+      ['companyLiab', companyLiab],
+      ['rates', rates],
+    ];
+    let allOk = true;
+    for (const [key, data] of jobs) {
+      const payload = JSON.stringify(data);
+      let ok = false;
+      for (let i = 0; i < 3 && !ok; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, 2000));
+        try {
+          await window.storage.set(key, payload);
+          const check = await window.storage.get(key);
+          ok = !!(check && check.value === payload);
+        } catch { ok = false; }
+      }
+      if (!ok) allOk = false;
+    }
+    setSaveStatus(allOk ? 'ok' : 'fail');
+    if (allOk) setTimeout(() => setSaveStatus(s => s === 'ok' ? null : s), 2000);
+    return allOk;
+  };
+
+  const allDates = useMemo(() => {
+    const s = new Set([
+      ...personalAssets.map(x => x.date),
+      ...personalLiab.map(x => x.date),
+      ...companyAssets.map(x => x.date),
+      ...companyLiab.map(x => x.date),
+    ]);
+    return [...s].filter(Boolean).sort();
+  }, [personalAssets, personalLiab, companyAssets, companyLiab]);
+
+  useEffect(() => {
+    if (!selectedDate && allDates.length) setSelectedDate(allDates[allDates.length - 1]);
+  }, [allDates, selectedDate]);
+
+  const twd = (amount, currency) => (amount || 0) * (rates[currency] || 1);
+
+  const companySnap = useMemo(() => {
+    const aRows = companyAssets.filter(x => x.date === selectedDate);
+    const lRows = companyLiab.filter(x => x.date === selectedDate);
+    const totalA = aRows.reduce((s, x) => s + twd(x.amount, x.currency), 0);
+    const totalL = lRows.reduce((s, x) => s + twd(x.amount, x.currency), 0);
+    return { aRows, lRows, totalA, totalL, equity: totalA - totalL };
+  }, [companyAssets, companyLiab, selectedDate, rates]);
+
+  const personalSnap = useMemo(() => {
+    const aRows = personalAssets.filter(x => x.date === selectedDate);
+    const lRows = personalLiab.filter(x => x.date === selectedDate);
+    const rawTotalA = aRows.reduce((s, x) => s + twd(x.amount, x.currency), 0);
+    const totalL = lRows.reduce((s, x) => s + twd(x.amount, x.currency), 0);
+    const byCat = {};
+    ASSET_CATEGORIES.forEach(c => byCat[c] = 0);
+    aRows.forEach(x => { byCat[x.category] = (byCat[x.category] || 0) + twd(x.amount, x.currency); });
+    if (showCompanyValue && companySnap.equity > 0) {
+      byCat['其他'] = (byCat['其他'] || 0) + companySnap.equity;
+    }
+    const byHolder = {};
+    aRows.forEach(x => { byHolder[x.holder] = (byHolder[x.holder] || 0) + twd(x.amount, x.currency); });
+    if (showCompanyValue && companySnap.equity > 0) {
+      byHolder['公司股權'] = companySnap.equity;
+    }
+    const totalA = rawTotalA + (showCompanyValue ? Math.max(companySnap.equity, 0) : 0);
+    return { aRows, lRows, totalA, totalL, net: totalA - totalL, byCat, byHolder, rawTotalA };
+  }, [personalAssets, personalLiab, selectedDate, rates, showCompanyValue, companySnap]);
+
+  const pieData = useMemo(() => {
+    return Object.entries(personalSnap.byCat).filter(([, v]) => v > 0).map(([name, value]) => ({ name, value: Math.round(value) }));
+  }, [personalSnap]);
+
+  const trend = useMemo(() => {
+    return allDates.map(d => {
+      const pa = personalAssets.filter(x => x.date === d).reduce((s, x) => s + twd(x.amount, x.currency), 0);
+      const pl = personalLiab.filter(x => x.date === d).reduce((s, x) => s + twd(x.amount, x.currency), 0);
+      const ca = companyAssets.filter(x => x.date === d).reduce((s, x) => s + twd(x.amount, x.currency), 0);
+      const cl = companyLiab.filter(x => x.date === d).reduce((s, x) => s + twd(x.amount, x.currency), 0);
+      const companyEq = Math.max(ca - cl, 0);
+      const totalA = pa + (showCompanyValue ? companyEq : 0);
+      return {
+        date: d.slice(5),
+        個人資產: Math.round(pa / 1e4),
+        個人負債: Math.round(pl / 1e4),
+        公司淨值: Math.round(companyEq / 1e4),
+        淨資產: Math.round((totalA - pl) / 1e4),
+      };
+    });
+  }, [personalAssets, personalLiab, companyAssets, companyLiab, allDates, rates, showCompanyValue]);
+
+  // ============ 財務體檢計算（hooks 必須在 early return 前）============
+  const MONTHLY_EXPENSE_DEFAULT = 200000;
+
+  const health = useMemo(() => {
+    const totalA = personalSnap.totalA;
+    const totalL = personalSnap.totalL;
+    const rawTotalA = personalSnap.rawTotalA;
+    const byCat = personalSnap.byCat;
+    const aRows = personalSnap.aRows;
+
+    const debtRatio = totalA > 0 ? totalL / totalA : 1;
+    let debtScore;
+    if (debtRatio < 0.3) debtScore = 100 - debtRatio * 100 / 3;
+    else if (debtRatio < 0.5) debtScore = 90 - (debtRatio - 0.3) * 100;
+    else if (debtRatio < 0.8) debtScore = 70 - (debtRatio - 0.5) * 100;
+    else debtScore = Math.max(0, 40 - (debtRatio - 0.8) * 200);
+    debtScore = Math.max(0, Math.min(100, debtScore));
+
+    // 流動性：用每筆的 liquidity 標記加權計算
+    // instant=100%, week=90%, month=60%, long=0%
+    // 沒標記的退回舊邏輯：現金存款=100%, 股票/基金/債券=70%
+    const liquidityWeight = (row) => {
+      if (row.liquidity) {
+        const lv = LIQUIDITY_LEVELS.find(l => l.key === row.liquidity);
+        return lv ? lv.weight : 0;
+      }
+      if (row.category === '現金存款') return 1.0;
+      if (row.category === '股票/基金' || row.category === '債券') return 0.7;
+      return 0;
+    };
+    const liquid = aRows.reduce((s, x) => s + twd(x.amount, x.currency) * liquidityWeight(x), 0);
+
+    // 短期負債警示：urgency=high 的負債（如欠嬸嬸）需要保留對應流動現金
+    const urgentDebt = personalSnap.lRows
+      .filter(x => x.urgency === 'high')
+      .reduce((s, x) => s + twd(x.amount, x.currency), 0);
+
+    // 實際可用流動 = 流動資產 − 緊急負債（要留現金應付的部分）
+    const netLiquid = Math.max(0, liquid - urgentDebt);
+    const monthsCover = netLiquid / MONTHLY_EXPENSE_DEFAULT;
+    let liquidScore;
+    if (monthsCover >= 12) liquidScore = 100;
+    else if (monthsCover >= 6) liquidScore = 85 + (monthsCover - 6) / 6 * 15;
+    else if (monthsCover >= 3) liquidScore = 65 + (monthsCover - 3) / 3 * 20;
+    else if (monthsCover >= 1) liquidScore = 40 + (monthsCover - 1) / 2 * 25;
+    else liquidScore = monthsCover * 40;
+    liquidScore = Math.max(0, Math.min(100, liquidScore));
+
+    const catPcts = Object.values(byCat).filter(v => v > 0).map(v => v / totalA);
+    const maxCat = catPcts.length ? Math.max(...catPcts) : 1;
+    let diversifyScore;
+    if (maxCat <= 0.4) diversifyScore = 100;
+    else if (maxCat <= 0.5) diversifyScore = 100 - (maxCat - 0.4) * 200;
+    else if (maxCat <= 0.6) diversifyScore = 80 - (maxCat - 0.5) * 200;
+    else if (maxCat <= 0.8) diversifyScore = 60 - (maxCat - 0.6) * 100;
+    else diversifyScore = Math.max(0, 40 - (maxCat - 0.8) * 100);
+
+    const holderTotals = {};
+    aRows.forEach(x => { holderTotals[x.holder] = (holderTotals[x.holder] || 0) + twd(x.amount, x.currency); });
+    const holderPcts = Object.values(holderTotals).filter(v => v > 0).map(v => v / (rawTotalA || 1));
+    const maxHolder = holderPcts.length ? Math.max(...holderPcts) : 1;
+    let holderScore;
+    if (maxHolder <= 0.6) holderScore = 100;
+    else if (maxHolder <= 0.75) holderScore = 100 - (maxHolder - 0.6) * 200;
+    else if (maxHolder <= 0.9) holderScore = 70 - (maxHolder - 0.75) * 200;
+    else holderScore = Math.max(0, 40 - (maxHolder - 0.9) * 200);
+
+    const curTotals = {};
+    aRows.forEach(x => { curTotals[x.currency] = (curTotals[x.currency] || 0) + twd(x.amount, x.currency); });
+    const curPcts = Object.values(curTotals).filter(v => v > 0).map(v => v / (rawTotalA || 1));
+    const maxCur = curPcts.length ? Math.max(...curPcts) : 1;
+    let curScore;
+    if (maxCur <= 0.5) curScore = 100;
+    else if (maxCur <= 0.7) curScore = 100 - (maxCur - 0.5) * 150;
+    else if (maxCur <= 0.85) curScore = 70 - (maxCur - 0.7) * 200;
+    else curScore = Math.max(0, 40 - (maxCur - 0.85) * 200);
+
+    // 應急覆蓋：扣掉緊急負債後的流動資產
+    const monthsPlus = netLiquid / MONTHLY_EXPENSE_DEFAULT;
+    let emergencyScore;
+    if (monthsPlus >= 24) emergencyScore = 100;
+    else if (monthsPlus >= 12) emergencyScore = 80 + (monthsPlus - 12) / 12 * 20;
+    else if (monthsPlus >= 6) emergencyScore = 60 + (monthsPlus - 6) / 6 * 20;
+    else emergencyScore = monthsPlus / 6 * 60;
+    emergencyScore = Math.max(0, Math.min(100, emergencyScore));
+
+    const total = Math.round(
+      debtScore * 0.25 +
+      liquidScore * 0.25 +
+      diversifyScore * 0.2 +
+      holderScore * 0.1 +
+      curScore * 0.1 +
+      emergencyScore * 0.1
+    );
+
+    return {
+      total,
+      debtScore: Math.round(debtScore), debtRatio,
+      liquidScore: Math.round(liquidScore), liquid, netLiquid, urgentDebt, monthsCover,
+      diversifyScore: Math.round(diversifyScore), maxCat,
+      maxCatName: Object.entries(byCat).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])[0]?.[0] || '—',
+      holderScore: Math.round(holderScore), maxHolder,
+      maxHolderName: Object.entries(holderTotals).sort((a, b) => b[1] - a[1])[0]?.[0] || '—',
+      curScore: Math.round(curScore), maxCur,
+      maxCurName: Object.entries(curTotals).sort((a, b) => b[1] - a[1])[0]?.[0] || '—',
+      emergencyScore: Math.round(emergencyScore), monthsPlus,
+    };
+  }, [personalSnap]);
+
+  const healthTrend = useMemo(() => {
+    return allDates.map(d => {
+      const aRows = personalAssets.filter(x => x.date === d);
+      const lRows = personalLiab.filter(x => x.date === d);
+      const cA = companyAssets.filter(x => x.date === d).reduce((s, x) => s + twd(x.amount, x.currency), 0);
+      const cL = companyLiab.filter(x => x.date === d).reduce((s, x) => s + twd(x.amount, x.currency), 0);
+      const companyEq = Math.max(cA - cL, 0);
+      const rawTotalA = aRows.reduce((s, x) => s + twd(x.amount, x.currency), 0);
+      const totalA = rawTotalA + (showCompanyValue ? companyEq : 0);
+      const totalL = lRows.reduce((s, x) => s + twd(x.amount, x.currency), 0);
+      const debtRatio = totalA > 0 ? totalL / totalA : 1;
+      let debtScore;
+      if (debtRatio < 0.3) debtScore = 100 - debtRatio * 100 / 3;
+      else if (debtRatio < 0.5) debtScore = 90 - (debtRatio - 0.3) * 100;
+      else if (debtRatio < 0.8) debtScore = 70 - (debtRatio - 0.5) * 100;
+      else debtScore = Math.max(0, 40 - (debtRatio - 0.8) * 200);
+      debtScore = Math.max(0, Math.min(100, debtScore));
+
+      const liquid = aRows.filter(x => x.category === '現金存款').reduce((s, x) => s + twd(x.amount, x.currency), 0);
+      const monthsCover = liquid / MONTHLY_EXPENSE_DEFAULT;
+      let liquidScore;
+      if (monthsCover >= 6) liquidScore = 100;
+      else if (monthsCover >= 3) liquidScore = 70 + (monthsCover - 3) * 10;
+      else if (monthsCover >= 1) liquidScore = 40 + (monthsCover - 1) * 15;
+      else liquidScore = monthsCover * 40;
+      liquidScore = Math.max(0, Math.min(100, liquidScore));
+
+      const byCat = {};
+      aRows.forEach(x => { byCat[x.category] = (byCat[x.category] || 0) + twd(x.amount, x.currency); });
+      const vals = Object.values(byCat);
+      const maxCat = totalA > 0 && vals.length ? Math.max(...vals, 0) / totalA : 1;
+      let diversifyScore;
+      if (maxCat <= 0.4) diversifyScore = 100;
+      else if (maxCat <= 0.5) diversifyScore = 100 - (maxCat - 0.4) * 200;
+      else if (maxCat <= 0.6) diversifyScore = 80 - (maxCat - 0.5) * 200;
+      else if (maxCat <= 0.8) diversifyScore = 60 - (maxCat - 0.6) * 100;
+      else diversifyScore = Math.max(0, 40 - (maxCat - 0.8) * 100);
+
+      const total = Math.round(debtScore * 0.25 + liquidScore * 0.25 + diversifyScore * 0.2 + 70 * 0.3);
+      return { date: d.slice(5), 評分: total };
+    });
+  }, [personalAssets, personalLiab, companyAssets, companyLiab, allDates, rates, showCompanyValue]);
+
+  if (loading) {
+    return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-zinc-500">載入中…</div>;
+  }
+
+  const renderOverview = () => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <KPI label="個人總資產" value={personalSnap.totalA} color="text-emerald-400" icon={<Wallet className="w-4 h-4" />} />
+        <KPI label="個人總負債" value={personalSnap.totalL} color="text-rose-400" icon={<AlertCircle className="w-4 h-4" />} />
+        <KPI label="淨資產" value={personalSnap.net} color={personalSnap.net >= 0 ? "text-emerald-400" : "text-rose-400"} icon={<TrendingUp className="w-4 h-4" />} highlight />
+        <KPI label="負債比" value={personalSnap.totalA ? (personalSnap.totalL / personalSnap.totalA * 100) : 0} suffix="%" decimal={1} color="text-zinc-200" />
+      </div>
+
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <div className="text-xs text-zinc-500">公司獨立淨值 (股權價值)</div>
+            <div className="text-xl font-bold tabular-nums text-amber-400 mt-1">{fmtShort(companySnap.equity)} TWD</div>
+            <div className="text-xs text-zinc-500 mt-1">資產 {fmtShort(companySnap.totalA)} − 負債 {fmtShort(companySnap.totalL)}</div>
+          </div>
+          <button
+            onClick={() => setShowCompanyValue(!showCompanyValue)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
+              showCompanyValue ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+            }`}>
+            {showCompanyValue ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
+            {showCompanyValue ? '公司淨值已併入個人' : '公司淨值未計入'}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-3">
+        <Card title="資產配置">
+          {pieData.length === 0 ? <Empty /> : (
+            <ResponsiveContainer width="100%" height={280}>
+              <PieChart>
+                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={95}
+                  label={(e) => `${e.name} ${(e.percent * 100).toFixed(0)}%`}
+                  style={{ fontSize: 11, fill: '#d4d4d8' }}>
+                  {pieData.map((e, i) => <Cell key={i} fill={ASSET_COLORS[e.name] || '#71717a'} stroke="#09090b" strokeWidth={2} />)}
+                </Pie>
+                <Tooltip contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, color: '#fafafa' }} formatter={(v) => fmt(v)} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+
+        <Card title="歷史走勢 (萬TWD)">
+          {trend.length <= 1 ? <Empty msg="累積多筆紀錄後出現走勢" /> : (
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={trend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#a1a1aa' }} />
+                <YAxis tick={{ fontSize: 11, fill: '#a1a1aa' }} />
+                <Tooltip contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8 }} formatter={(v) => `${fmt(v)} 萬`} />
+                <Legend wrapperStyle={{ fontSize: 12, color: '#d4d4d8' }} />
+                <Line type="monotone" dataKey="淨資產" stroke="#60a5fa" strokeWidth={3} />
+                <Line type="monotone" dataKey="個人資產" stroke="#34d399" strokeWidth={2} />
+                <Line type="monotone" dataKey="個人負債" stroke="#f87171" strokeWidth={2} />
+                <Line type="monotone" dataKey="公司淨值" stroke="#fbbf24" strokeWidth={2} strokeDasharray="5 5" />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-3">
+        <Card title="依分類">
+          <table className="w-full text-sm">
+            <thead className="text-zinc-500 text-xs">
+              <tr><th className="text-left py-2">分類</th><th className="text-right">金額 (TWD)</th><th className="text-right w-14">占比</th></tr>
+            </thead>
+            <tbody>
+              {Object.entries(personalSnap.byCat).filter(([, v]) => v !== 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+                <tr key={k} className="border-t border-zinc-800">
+                  <td className="py-2 text-zinc-200 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full" style={{ background: ASSET_COLORS[k] || '#71717a' }}></span>{k}
+                  </td>
+                  <td className="text-right tabular-nums text-zinc-200">{fmt(v)}</td>
+                  <td className="text-right tabular-nums text-zinc-500">{personalSnap.totalA ? (v / personalSnap.totalA * 100).toFixed(1) : 0}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+
+        <Card title="依持有人">
+          <table className="w-full text-sm">
+            <thead className="text-zinc-500 text-xs">
+              <tr><th className="text-left py-2">持有人</th><th className="text-right">金額 (TWD)</th><th className="text-right w-14">占比</th></tr>
+            </thead>
+            <tbody>
+              {Object.entries(personalSnap.byHolder).filter(([, v]) => v !== 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+                <tr key={k} className="border-t border-zinc-800">
+                  <td className="py-2 text-zinc-200">{k}</td>
+                  <td className="text-right tabular-nums text-zinc-200">{fmt(v)}</td>
+                  <td className="text-right tabular-nums text-zinc-500">{personalSnap.totalA ? (v / personalSnap.totalA * 100).toFixed(1) : 0}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      </div>
+    </div>
+  );
+
+  const renderList = (rows, isAsset, scope) => {
+    const filtered = rows.filter(x => x.date === selectedDate);
+    const total = filtered.reduce((s, x) => s + twd(x.amount, x.currency), 0);
+    const key = scope === 'personal' ? (isAsset ? 'personalAssets' : 'personalLiab') : (isAsset ? 'companyAssets' : 'companyLiab');
+    const setter = scope === 'personal' ? (isAsset ? setPersonalAssets : setPersonalLiab) : (isAsset ? setCompanyAssets : setCompanyLiab);
+    const data = scope === 'personal' ? (isAsset ? personalAssets : personalLiab) : (isAsset ? companyAssets : companyLiab);
+
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="text-sm text-zinc-400">{selectedDate}　共 {filtered.length} 筆　合計 <span className="text-zinc-200 font-medium">{fmt(total)} TWD</span></div>
+          <button
+            onClick={() => setSnapshotMode(scope)}
+            className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm">
+            <Sparkles className="w-4 h-4" /> 新增紀錄
+          </button>
+        </div>
+
+        {filtered.length === 0 && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl py-10 text-center space-y-3">
+            <div className="text-zinc-500 text-sm">本期（{selectedDate}）尚無資料</div>
+            <div className="flex flex-col items-center gap-2">
+              <button
+                onClick={() => setSnapshotMode(scope)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm inline-flex items-center gap-1">
+                <Sparkles className="w-4 h-4" /> 新增紀錄
+              </button>
+              {/* 如果是 storage 掉資料，提供一鍵恢復 */}
+              {data.length === 0 && (
+                <button
+                  onClick={async () => {
+                    const seed = scope === 'personal'
+                      ? (isAsset ? withIds(SEED_PERSONAL_ASSETS, 'pa') : withIds(SEED_PERSONAL_LIABILITIES, 'pl'))
+                      : (isAsset ? withIds(SEED_COMPANY_ASSETS, 'ca') : withIds(SEED_COMPANY_LIABILITIES, 'cl'));
+                    await save(key, setter, seed);
+                  }}
+                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-300 rounded-lg text-sm">
+                  ⚠️ 資料遺失了？點此恢復 2026-05-11 種子資料
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2.5">
+          {filtered.map(x => {
+            const liqLevel = isAsset && x.liquidity ? LIQUIDITY_LEVELS.find(l => l.key === x.liquidity) : null;
+            const urgencyMap = {
+              high: { label: '🔴 隨時可能要還', color: 'text-rose-400' },
+              medium: { label: '🟡 固定還款中', color: 'text-amber-400' },
+              low: { label: '🟢 暫不用還/只還息', color: 'text-emerald-400' },
+            };
+            const urg = !isAsset && x.urgency ? urgencyMap[x.urgency] : null;
+
+            return (
+              <div key={x.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                {/* 第一行：名稱（可點擊編輯） + 刪除 */}
+                <div className="flex items-start justify-between gap-2">
+                  <EditableName
+                    value={x.name}
+                    onSave={(newName) => {
+                      const updated = data.map(d => d.id === x.id ? { ...d, name: newName } : d);
+                      save(key, setter, updated);
+                    }}
+                  />
+                  <button onClick={() => save(key, setter, data.filter(d => d.id !== x.id))}
+                    className="p-1 text-zinc-700 hover:text-rose-400 flex-shrink-0" title="刪除">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* 第二行：標籤 */}
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">{x.category}</span>
+                  <span className="text-[10px] text-zinc-500">{isAsset ? x.holder : x.counterparty}</span>
+                  {liqLevel && <span className={`text-[10px] ${liqLevel.color}`}>💧 {liqLevel.label}</span>}
+                  {urg && <span className={`text-[10px] ${urg.color}`}>{urg.label}</span>}
+                </div>
+
+                {/* 第三行：金額 — 點原幣金額可直接編輯 */}
+                <EditableAmount
+                  currency={x.currency}
+                  amount={x.amount}
+                  twdValue={twd(x.amount, x.currency)}
+                  onSave={(newAmount) => {
+                    const updated = data.map(d => d.id === x.id ? { ...d, amount: newAmount } : d);
+                    save(key, setter, updated);
+                  }}
+                />
+
+                {/* 備註 — 點擊可編輯 */}
+                <EditableNote
+                  value={x.note || ''}
+                  onSave={(newNote) => {
+                    const updated = data.map(d => d.id === x.id ? { ...d, note: newNote } : d);
+                    save(key, setter, updated);
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+
+  const getGrade = (score) => {
+    if (score >= 90) return { letter: 'A+', color: 'text-emerald-400', bg: 'from-emerald-900/40 to-emerald-700/20', desc: '財務狀況極佳' };
+    if (score >= 80) return { letter: 'A', color: 'text-emerald-400', bg: 'from-emerald-900/30 to-emerald-700/10', desc: '財務狀況良好' };
+    if (score >= 70) return { letter: 'B+', color: 'text-blue-400', bg: 'from-blue-900/30 to-blue-700/10', desc: '基本健康，有改善空間' };
+    if (score >= 60) return { letter: 'B', color: 'text-blue-400', bg: 'from-blue-900/30 to-blue-700/10', desc: '可接受，但要留意風險' };
+    if (score >= 50) return { letter: 'C', color: 'text-amber-400', bg: 'from-amber-900/30 to-amber-700/10', desc: '需要積極改善' };
+    return { letter: 'D', color: 'text-rose-400', bg: 'from-rose-900/40 to-rose-700/20', desc: '財務狀況需要立刻處理' };
+  };
+
+  const renderHealth = () => {
+    const grade = getGrade(health.total);
+    const monthlyExp = MONTHLY_EXPENSE_DEFAULT;
+
+    const items = [
+      {
+        name: '負債比', icon: <Shield className="w-5 h-5" />, weight: 25,
+        score: health.debtScore,
+        actual: `${(health.debtRatio * 100).toFixed(1)}%`,
+        ideal: '< 30%',
+        tip: health.debtRatio < 0.3 ? '✅ 負債控制得很好' : health.debtRatio < 0.5 ? '👍 健康範圍，但要留意' : health.debtRatio < 0.8 ? '⚠️ 負債偏高，建議優先還款' : '🔴 負債過高，需積極處理',
+      },
+      {
+        name: '流動性', icon: <Droplet className="w-5 h-5" />, weight: 25,
+        score: health.liquidScore,
+        actual: `淨流動 ${health.monthsCover.toFixed(1)} 個月`,
+        ideal: '≥ 6 個月生活費',
+        tip: health.urgentDebt > 0
+          ? `總流動 ${fmtShort(health.liquid)}，扣掉緊急負債 ${fmtShort(health.urgentDebt)} = 淨可動 ${fmtShort(health.netLiquid)}`
+          : (health.monthsCover >= 6 ? '✅ 緊急預備金充足' : health.monthsCover >= 3 ? '⚠️ 預備金尚可，建議再增加' : '🔴 流動現金太少'),
+      },
+      {
+        name: '資產分散度', icon: <PieIcon className="w-5 h-5" />, weight: 20,
+        score: health.diversifyScore,
+        actual: `最大類別 ${health.maxCatName} ${(health.maxCat * 100).toFixed(0)}%`,
+        ideal: '單一類別 < 40%',
+        tip: health.maxCat <= 0.4 ? '✅ 分散得不錯' : health.maxCat <= 0.6 ? '👍 還算分散' : '⚠️ 集中度偏高，建議多元配置',
+      },
+      {
+        name: '持有人分散', icon: <Users className="w-5 h-5" />, weight: 10,
+        score: health.holderScore,
+        actual: `最大 ${health.maxHolderName} ${(health.maxHolder * 100).toFixed(0)}%`,
+        ideal: '單一持有人 < 60%',
+        tip: health.maxHolder <= 0.6 ? '✅ 夫妻分散合理' : '⚠️ 多數資產集中單人名下',
+      },
+      {
+        name: '幣別分散', icon: <Globe className="w-5 h-5" />, weight: 10,
+        score: health.curScore,
+        actual: `${health.maxCurName} ${(health.maxCur * 100).toFixed(0)}%`,
+        ideal: '單一幣別 < 50%',
+        tip: health.maxCur <= 0.5 ? '✅ 跨幣別配置良好' : health.maxCur <= 0.7 ? '👍 還算分散' : '⚠️ 幣別集中，匯率波動會影響身家',
+      },
+      {
+        name: '應急覆蓋', icon: <Activity className="w-5 h-5" />, weight: 10,
+        score: health.emergencyScore,
+        actual: `${health.monthsPlus.toFixed(0)} 個月`,
+        ideal: '≥ 24 個月（含可變現投資）',
+        tip: health.monthsPlus >= 24 ? '✅ 抗風險能力很強' : health.monthsPlus >= 12 ? '👍 不錯' : '⚠️ 緊急週轉能力偏弱',
+      },
+    ];
+
+    return (
+      <div className="space-y-4">
+        {/* 總分卡 */}
+        <div className={`rounded-2xl p-6 bg-gradient-to-br ${grade.bg} border border-zinc-700`}>
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <div className="text-xs text-zinc-400 mb-1">📋 財務體檢總分 · {selectedDate}</div>
+              <div className="flex items-baseline gap-3">
+                <span className={`text-6xl font-bold ${grade.color}`}>{health.total}</span>
+                <span className="text-zinc-500 text-xl">/ 100</span>
+                <span className={`text-3xl font-bold ${grade.color} ml-2`}>{grade.letter}</span>
+              </div>
+              <div className="text-zinc-300 text-sm mt-2">{grade.desc}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-zinc-500 mb-1">月支出估算</div>
+              <div className="text-zinc-200 tabular-nums">{fmt(monthlyExp)} TWD</div>
+              <div className="text-[10px] text-zinc-600 mt-1">含港存台貸利息+車貸+生活費</div>
+            </div>
+          </div>
+        </div>
+
+        {/* 趨勢 */}
+        {healthTrend.length > 1 && (
+          <Card title="體檢分數歷史">
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={healthTrend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#a1a1aa' }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#a1a1aa' }} />
+                <Tooltip contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8 }} />
+                <Line type="monotone" dataKey="評分" stroke="#60a5fa" strokeWidth={3} dot={{ fill: '#60a5fa', r: 4 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </Card>
+        )}
+
+        {/* 各項細項 */}
+        <div className="space-y-3">
+          {items.map((item, i) => {
+            const itemGrade = getGrade(item.score);
+            return (
+              <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3 gap-3">
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    <div className={`p-2 rounded-lg bg-zinc-800 ${itemGrade.color}`}>
+                      {item.icon}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-zinc-100 font-medium">{item.name}</div>
+                      <div className="text-[11px] text-zinc-500">權重 {item.weight}%</div>
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className={`text-2xl font-bold ${itemGrade.color} tabular-nums`}>{item.score}</div>
+                    <div className="text-[10px] text-zinc-500">/100</div>
+                  </div>
+                </div>
+
+                {/* 分數條 */}
+                <div className="h-2 bg-zinc-800 rounded-full overflow-hidden mb-3">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      item.score >= 80 ? 'bg-emerald-500' :
+                      item.score >= 60 ? 'bg-blue-500' :
+                      item.score >= 40 ? 'bg-amber-500' : 'bg-rose-500'
+                    }`}
+                    style={{ width: `${item.score}%` }}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-xs mb-2">
+                  <div>
+                    <div className="text-zinc-500">目前</div>
+                    <div className="text-zinc-200 font-medium">{item.actual}</div>
+                  </div>
+                  <div>
+                    <div className="text-zinc-500">理想</div>
+                    <div className="text-zinc-400">{item.ideal}</div>
+                  </div>
+                </div>
+
+                <div className="text-xs text-zinc-300 bg-zinc-800/50 rounded-lg px-3 py-2 mt-2">
+                  {item.tip}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 行動建議 */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+          <div className="text-zinc-100 font-semibold mb-3 flex items-center gap-2">
+            💡 改善建議
+          </div>
+          <div className="space-y-2 text-sm text-zinc-300">
+            {items.filter(it => it.score < 70).slice(0, 3).map((it, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="text-amber-400 flex-shrink-0">▸</span>
+                <span><b className="text-zinc-100">{it.name}</b> 分數較低（{it.score}），{it.tip.replace(/^[✅⚠️🔴👍]+\s*/, '')}</span>
+              </div>
+            ))}
+            {items.filter(it => it.score < 70).length === 0 && (
+              <div className="text-emerald-300">🎉 各項指標都不錯，繼續保持！</div>
+            )}
+          </div>
+        </div>
+
+        <p className="text-[10px] text-zinc-600 text-center mt-2 px-4">
+          ⚠️ 評分僅供參考，月支出估算為 20 萬 TWD（如需調整請告訴 Claude）。重大財務決策請諮詢專業顧問。
+        </p>
+      </div>
+    );
+  };
+
+  const renderSettings = () => (
+    <div className="grid md:grid-cols-2 gap-4 max-w-3xl">
+      <Card title="匯率（對台幣 TWD）">
+        <div className="space-y-2">
+          {CURRENCIES.map(c => (
+            <div key={c} className="flex items-center gap-3">
+              <span className="w-12 text-zinc-300 font-medium">{c}</span>
+              <input
+                type="number" step="0.01"
+                value={rates[c] ?? ''}
+                onChange={e => setRates({ ...rates, [c]: parseFloat(e.target.value) || 0 })}
+                onBlur={() => save('rates', setRates, rates)}
+                className="flex-1 px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-right tabular-nums text-zinc-100"
+              />
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-zinc-500 mt-3">匯率改完所有頁面自動重算</p>
+      </Card>
+
+      <Card title="資料備份">
+        <BackupRestorePanel
+          getData={() => ({ personalAssets, personalLiab, companyAssets, companyLiab, rates })}
+          onRestore={async (d) => {
+            if (d.personalAssets) await save('personalAssets', setPersonalAssets, d.personalAssets);
+            if (d.personalLiab) await save('personalLiab', setPersonalLiab, d.personalLiab);
+            if (d.companyAssets) await save('companyAssets', setCompanyAssets, d.companyAssets);
+            if (d.companyLiab) await save('companyLiab', setCompanyLiab, d.companyLiab);
+            if (d.rates) await save('rates', setRates, d.rates);
+          }}
+        />
+      </Card>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      <div className="bg-zinc-950 border-b border-zinc-800 sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <h1 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
+              <Wallet className="w-5 h-5 text-blue-400" /> 資產儀表板
+            </h1>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-zinc-500">紀錄日期</label>
+              <select
+                value={selectedDate}
+                onChange={e => setSelectedDate(e.target.value)}
+                className="px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-zinc-100">
+                {allDates.slice().reverse().map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex gap-1 mt-3 -mb-px overflow-x-auto">
+            {[
+              ['overview', '總覽', User],
+              ['health', '體檢', Stethoscope],
+              ['p-assets', '個人資產', Wallet],
+              ['p-liab', '個人負債', AlertCircle],
+              ['c-assets', '公司資產', Building2],
+              ['c-liab', '公司負債', AlertCircle],
+              ['settings', '設定', SettingsIcon],
+            ].map(([k, label, Icon]) => (
+              <button
+                key={k}
+                onClick={() => setTab(k)}
+                className={`px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition flex items-center gap-1.5 ${
+                  tab === k ? 'border-blue-500 text-blue-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                }`}>
+                <Icon className="w-4 h-4" />{label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 py-5">
+        {tab === 'overview' && renderOverview()}
+        {tab === 'health' && renderHealth()}
+        {tab === 'p-assets' && renderList(personalAssets, true, 'personal')}
+        {tab === 'p-liab' && renderList(personalLiab, false, 'personal')}
+        {tab === 'c-assets' && renderList(companyAssets, true, 'company')}
+        {tab === 'c-liab' && renderList(companyLiab, false, 'company')}
+        {tab === 'settings' && renderSettings()}
+      </div>
+
+      {/* 儲存狀態浮動提示 */}
+      {saveStatus && (
+        <div className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-2xl text-sm font-medium shadow-lg ${
+          saveStatus === 'saving' ? 'bg-zinc-800 text-zinc-300' :
+          saveStatus === 'ok' ? 'bg-emerald-600 text-white' :
+          'bg-rose-600 text-white'
+        }`}>
+          {saveStatus === 'saving' && '儲存中…'}
+          {saveStatus === 'ok' && '✓ 已儲存'}
+          {saveStatus === 'fail' && (
+            <div className="flex items-center gap-3">
+              <span>⚠️ 儲存失敗</span>
+              <button
+                onClick={saveAll}
+                className="px-3 py-1 bg-white text-rose-600 rounded-full text-xs font-bold">
+                重新儲存全部
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {snapshotMode && (
+        <SnapshotModal
+          scope={snapshotMode}
+          existingAssets={snapshotMode === 'personal' ? personalAssets : companyAssets}
+          existingLiab={snapshotMode === 'personal' ? personalLiab : companyLiab}
+          assetTemplate={snapshotMode === 'personal' ? TEMPLATE_PERSONAL_ASSETS : TEMPLATE_COMPANY_ASSETS}
+          liabTemplate={snapshotMode === 'personal' ? TEMPLATE_PERSONAL_LIABILITIES : TEMPLATE_COMPANY_LIABILITIES}
+          onClose={() => setSnapshotMode(null)}
+          onSave={async (date, newAssets, newLiab) => {
+            // 新項目套上日期 + 新 ID
+            const stamp = Date.now();
+            const assetItems = newAssets.map((x, i) => ({ ...x, id: 'a' + stamp + '_' + i, date }));
+            const liabItems = newLiab.map((x, i) => ({ ...x, id: 'l' + stamp + '_' + i, date }));
+
+            try {
+              if (snapshotMode === 'personal') {
+                // 同日資料先移除，再加入新的（= 覆蓋當日紀錄）
+                const cleanedAssets = personalAssets.filter(x => x.date !== date);
+                const cleanedLiab = personalLiab.filter(x => x.date !== date);
+                await save('personalAssets', setPersonalAssets, [...cleanedAssets, ...assetItems]);
+                await save('personalLiab', setPersonalLiab, [...cleanedLiab, ...liabItems]);
+              } else {
+                const cleanedAssets = companyAssets.filter(x => x.date !== date);
+                const cleanedLiab = companyLiab.filter(x => x.date !== date);
+                await save('companyAssets', setCompanyAssets, [...cleanedAssets, ...assetItems]);
+                await save('companyLiab', setCompanyLiab, [...cleanedLiab, ...liabItems]);
+              }
+              setSelectedDate(date);
+              setSnapshotMode(null);
+            } catch (err) {
+              console.error('儲存失敗', err);
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function KPI({ label, value, color = "text-zinc-100", suffix = "", decimal = 0, icon, highlight }) {
+  return (
+    <div className={`rounded-xl p-3 border ${highlight ? 'bg-gradient-to-br from-blue-950/60 to-indigo-950/40 border-blue-800/60' : 'bg-zinc-900 border-zinc-800'}`}>
+      <div className="flex items-center justify-between text-zinc-500 text-xs mb-1">
+        <span>{label}</span>{icon}
+      </div>
+      <div className={`text-xl font-bold tabular-nums ${color}`}>
+        {suffix ? `${value.toFixed(decimal)}${suffix}` : fmtShort(value)}
+      </div>
+      {!suffix && <div className="text-xs text-zinc-600 tabular-nums mt-0.5">{fmt(value)}</div>}
+    </div>
+  );
+}
+
+function Card({ title, children }) {
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+      <h3 className="font-semibold text-zinc-300 mb-3 text-sm">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function Empty({ msg = '尚無資料' }) {
+  return <div className="h-[260px] flex items-center justify-center text-zinc-600 text-sm">{msg}</div>;
+}
+
+function EditableName({ value, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(value);
+
+  useEffect(() => { setText(value); }, [value]);
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="flex-1 min-w-0 text-left text-zinc-100 font-medium leading-tight hover:text-blue-300 transition group">
+        {value} <span className="text-zinc-700 text-xs group-hover:text-zinc-500">✏️</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex-1 min-w-0 flex items-center gap-1.5">
+      <input
+        autoFocus
+        type="text"
+        value={text}
+        onChange={e => setText(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && text.trim()) { onSave(text.trim()); setEditing(false); }
+          if (e.key === 'Escape') { setText(value); setEditing(false); }
+        }}
+        className="flex-1 min-w-0 px-2 py-1 bg-zinc-800 border border-blue-500 rounded text-zinc-100 font-medium focus:outline-none"
+      />
+      <button
+        onClick={() => { setText(value); setEditing(false); }}
+        className="p-1 text-zinc-500 hover:text-zinc-300 flex-shrink-0">
+        <X className="w-4 h-4" />
+      </button>
+      <button
+        onClick={() => { if (text.trim()) { onSave(text.trim()); setEditing(false); } }}
+        className="p-1 text-blue-400 hover:text-blue-300 flex-shrink-0">
+        <Check className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+function EditableAmount({ currency, amount, twdValue, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(String(amount || 0));
+
+  useEffect(() => { setText(String(amount || 0)); }, [amount]);
+
+  const fmtLocal = (n) => new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 0 }).format(Math.round(n));
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="w-full flex items-baseline justify-between mt-2.5 pt-2.5 border-t border-zinc-800 hover:bg-zinc-800/40 rounded-b-lg transition px-1 -mx-1 text-left">
+        <div className="text-xs text-zinc-500">
+          {currency} {fmtLocal(amount)} <span className="text-zinc-700 ml-1">✏️</span>
+        </div>
+        <div className="text-lg font-semibold tabular-nums text-zinc-100">
+          {fmtLocal(twdValue)} <span className="text-xs text-zinc-500 font-normal">TWD</span>
+        </div>
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2.5 pt-2.5 border-t border-zinc-800 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-zinc-500 w-12">{currency}</span>
+        <input
+          autoFocus
+          type="number"
+          inputMode="decimal"
+          value={text}
+          onChange={e => setText(e.target.value)}
+          className="flex-1 px-3 py-2 bg-zinc-800 border border-blue-500 rounded-lg text-zinc-100 text-right tabular-nums text-lg focus:outline-none"
+        />
+      </div>
+      <div className="flex gap-2 justify-end">
+        <button
+          onClick={() => { setText(String(amount || 0)); setEditing(false); }}
+          className="px-3 py-1 text-xs text-zinc-400 hover:bg-zinc-800 rounded">
+          取消
+        </button>
+        <button
+          onClick={() => { onSave(parseFloat(text) || 0); setEditing(false); }}
+          className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded font-medium">
+          儲存
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EditableNote({ value, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(value);
+
+  useEffect(() => { setText(value); }, [value]);
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="w-full mt-2 text-left text-xs leading-relaxed bg-zinc-800/40 hover:bg-zinc-800/70 rounded-lg px-3 py-2 transition group">
+        {value ? (
+          <span className="text-zinc-400">📝 {value}</span>
+        ) : (
+          <span className="text-zinc-600 group-hover:text-zinc-500">📝 點此加備註…</span>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      <textarea
+        autoFocus
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder="例：月還利息 X 萬、年利率 X%、到期日…"
+        rows={Math.max(2, Math.ceil(text.length / 30))}
+        className="w-full px-3 py-2 bg-zinc-800 border border-blue-500 rounded-lg text-zinc-100 text-xs leading-relaxed focus:outline-none resize-none"
+      />
+      <div className="flex gap-2 justify-end">
+        <button
+          onClick={() => { setText(value); setEditing(false); }}
+          className="px-3 py-1 text-xs text-zinc-400 hover:bg-zinc-800 rounded">
+          取消
+        </button>
+        <button
+          onClick={() => { onSave(text); setEditing(false); }}
+          className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded font-medium">
+          儲存
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function BackupRestorePanel({ getData, onRestore }) {
+  const [mode, setMode] = useState(null); // null | 'backup' | 'restore'
+  const [text, setText] = useState('');
+  const [msg, setMsg] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const openBackup = () => {
+    const data = getData();
+    setText(JSON.stringify(data, null, 2));
+    setMode('backup');
+    setMsg('');
+    setCopied(false);
+  };
+
+  const openRestore = () => {
+    setText('');
+    setMode('restore');
+    setMsg('');
+  };
+
+  const copyToClipboard = async () => {
+    try {
+      // 優先用現代 API
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setMsg('✓ 已複製到剪貼簿，現在貼到備忘錄／LINE 給自己保存');
+        setTimeout(() => setCopied(false), 3000);
+        return;
+      }
+    } catch (e) { /* fall through */ }
+    // 退而求其次：用 select + execCommand
+    try {
+      const ta = document.getElementById('backup-textarea');
+      ta.select();
+      ta.setSelectionRange(0, 99999);
+      document.execCommand('copy');
+      setCopied(true);
+      setMsg('✓ 已複製，貼到備忘錄保存');
+      setTimeout(() => setCopied(false), 3000);
+    } catch (e) {
+      setMsg('⚠️ 無法自動複製，請手動長按文字 → 全選 → 複製');
+    }
+  };
+
+  const handleRestore = async () => {
+    try {
+      const d = JSON.parse(text.trim());
+      await onRestore(d);
+      setMsg('✓ 還原完成');
+      setTimeout(() => { setMode(null); setMsg(''); }, 1500);
+    } catch (e) {
+      setMsg('⚠️ 文字格式錯誤，請確認貼上的是完整 JSON');
+    }
+  };
+
+  if (!mode) {
+    return (
+      <div className="space-y-2">
+        <button onClick={openBackup}
+          className="w-full px-3 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm inline-flex items-center justify-center gap-2 font-medium">
+          📋 產生備份文字（複製保存）
+        </button>
+        <button onClick={openRestore}
+          className="w-full px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-sm inline-flex items-center justify-center gap-2">
+          📥 從備份還原（貼上文字）
+        </button>
+        <p className="text-[11px] text-zinc-500 leading-relaxed mt-2">
+          資料平常會自動儲存。建議定期複製一份備份文字貼到備忘錄或寄給自己 Email，以防資料遺失。
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-zinc-300 font-medium">
+          {mode === 'backup' ? '👇 全選複製這段文字保存' : '👇 貼上備份文字'}
+        </div>
+        <button onClick={() => { setMode(null); setMsg(''); }}
+          className="text-zinc-500 hover:text-zinc-300 text-xs">
+          ← 返回
+        </button>
+      </div>
+
+      <textarea
+        id="backup-textarea"
+        value={text}
+        onChange={e => setText(e.target.value)}
+        readOnly={mode === 'backup'}
+        placeholder={mode === 'restore' ? '貼上之前複製的備份文字...' : ''}
+        className="w-full h-48 px-3 py-2 bg-zinc-950 border border-zinc-700 rounded-lg text-zinc-200 text-xs font-mono"
+        onClick={mode === 'backup' ? (e) => e.target.select() : undefined}
+      />
+
+      {msg && (
+        <div className={`text-sm py-2 px-3 rounded-lg ${
+          msg.startsWith('✓') ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
+        }`}>
+          {msg}
+        </div>
+      )}
+
+      {mode === 'backup' && (
+        <button onClick={copyToClipboard}
+          className={`w-full px-3 py-2.5 rounded-lg text-sm font-medium ${
+            copied ? 'bg-emerald-600 text-white' : 'bg-blue-600 hover:bg-blue-500 text-white'
+          }`}>
+          {copied ? '✓ 已複製' : '📋 點此複製全部'}
+        </button>
+      )}
+
+      {mode === 'restore' && (
+        <button onClick={handleRestore}
+          disabled={!text.trim()}
+          className="w-full px-3 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded-lg text-sm font-medium">
+          確認還原
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SnapshotModal({ scope, existingAssets, existingLiab, assetTemplate, liabTemplate, onClose, onSave }) {
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [section, setSection] = useState('asset'); // 'asset' or 'liab'
+  const [warning, setWarning] = useState('');
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
+
+  const allDates = [...new Set([...existingAssets.map(x => x.date), ...existingLiab.map(x => x.date)])].filter(Boolean).sort();
+  const lastDate = allDates[allDates.length - 1];
+
+  const prevAssets = existingAssets.filter(x => x.date === lastDate);
+  const prevLiab = existingLiab.filter(x => x.date === lastDate);
+
+  const makeBlank = (isAsset) => ({
+    name: '', category: isAsset ? ASSET_CATEGORIES[0] : LIAB_CATEGORIES[0],
+    [isAsset ? 'holder' : 'counterparty']: scope === 'company' ? '公司' : '你',
+    currency: 'HKD', amount: 0, note: '', isCustom: true,
+  });
+
+  const buildInitialRows = (template, prev, isAsset) => {
+    const ownerKey = isAsset ? 'holder' : 'counterparty';
+    const tagKey = isAsset ? 'liquidity' : 'urgency';
+    const templateNames = new Set(template.map(t => t.name));
+
+    const rowsFromTemplate = template.map(t => {
+      const found = prev.find(p => p.name === t.name);
+      return {
+        name: t.name,
+        category: t.category,
+        [ownerKey]: t[ownerKey],
+        currency: t.currency,
+        amount: found ? found.amount : 0,
+        note: found?.note || t.note || '',
+        [tagKey]: (found && found[tagKey]) || t[tagKey] || (isAsset ? 'instant' : 'low'),
+        isCustom: false,
+      };
+    });
+
+    const rowsFromExtra = prev
+      .filter(p => !templateNames.has(p.name))
+      .map(p => ({
+        name: p.name,
+        category: p.category,
+        [ownerKey]: p[ownerKey],
+        currency: p.currency,
+        amount: p.amount,
+        note: p.note || '',
+        [tagKey]: p[tagKey] || (isAsset ? 'instant' : 'low'),
+        isCustom: true,
+      }));
+
+    return [...rowsFromTemplate, ...rowsFromExtra];
+  };
+
+  const [assetRows, setAssetRows] = useState(buildInitialRows(assetTemplate, prevAssets, true));
+  const [liabRows, setLiabRows] = useState(buildInitialRows(liabTemplate, prevLiab, false));
+
+  const updateAsset = (i, field, val) => {
+    const next = [...assetRows]; next[i] = { ...next[i], [field]: val }; setAssetRows(next);
+  };
+  const updateLiab = (i, field, val) => {
+    const next = [...liabRows]; next[i] = { ...next[i], [field]: val }; setLiabRows(next);
+  };
+
+  const holdersList = scope === 'company' ? HOLDERS_COMPANY : HOLDERS_PERSONAL;
+
+  // 計算合計（TWD 等值用簡單估算，給使用者參考）
+  const sumRows = (rows) => rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+
+  // 卡片元件 — 一個資產/負債佔一張卡片
+  const renderCard = (row, i, isAsset) => {
+    const update = isAsset ? updateAsset : updateLiab;
+    const setRows = isAsset ? setAssetRows : setLiabRows;
+    const rows = isAsset ? assetRows : liabRows;
+    const ownerKey = isAsset ? 'holder' : 'counterparty';
+    const ownerLabel = isAsset ? '持有人' : '對象';
+    const cats = isAsset ? ASSET_CATEGORIES : LIAB_CATEGORIES;
+    const hasValue = parseFloat(row.amount) > 0;
+
+    return (
+      <div key={i} className={`rounded-2xl border p-4 transition ${
+        hasValue ? 'bg-zinc-900/80 border-zinc-700' : 'bg-zinc-900/40 border-zinc-800'
+      }`}>
+        {/* 卡片標題：項目名稱 */}
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="flex-1 min-w-0">
+            {row.isCustom ? (
+              <input
+                type="text" value={row.name}
+                onChange={e => update(i, 'name', e.target.value)}
+                placeholder="項目名稱"
+                className="w-full bg-transparent text-zinc-100 text-base font-medium border-b border-zinc-700 focus:border-blue-500 focus:outline-none pb-1"
+              />
+            ) : (
+              <div className="text-zinc-100 text-base font-medium leading-tight break-words">{row.name}</div>
+            )}
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">{row.category}</span>
+              <span className="text-[10px] text-zinc-500">{isAsset ? row.holder : row.counterparty}</span>
+              {!row.isCustom && <span className="text-[10px] text-zinc-600">範本</span>}
+            </div>
+          </div>
+          {row.isCustom && (
+            <button onClick={() => setRows(rows.filter((_, idx) => idx !== i))}
+              className="text-zinc-600 hover:text-rose-400 p-1 flex-shrink-0">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          {!row.isCustom && (
+            <button onClick={() => setRows(rows.filter((_, idx) => idx !== i))}
+              className="text-zinc-700 hover:text-rose-400 p-1 flex-shrink-0"
+              title="從本次紀錄移除（下次新增時還會出現）">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* 金額輸入區 — 大字明顯 */}
+        <div className="flex items-stretch gap-2">
+          <select
+            value={row.currency}
+            onChange={e => update(i, 'currency', e.target.value)}
+            className="px-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-300 w-20">
+            {CURRENCIES.map(c => <option key={c}>{c}</option>)}
+          </select>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={row.amount || ''}
+            onChange={e => update(i, 'amount', parseFloat(e.target.value) || 0)}
+            placeholder="0"
+            className="flex-1 px-3 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 text-right tabular-nums text-lg focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+
+        {/* 自訂卡片才顯示分類/持有人選單；範本不能改 */}
+        {row.isCustom && (
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            <select
+              value={row.category}
+              onChange={e => update(i, 'category', e.target.value)}
+              className="px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-300">
+              {cats.map(c => <option key={c}>{c}</option>)}
+            </select>
+            {isAsset ? (
+              <select
+                value={row.holder}
+                onChange={e => update(i, 'holder', e.target.value)}
+                className="px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-300">
+                {holdersList.map(h => <option key={h}>{h}</option>)}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={row.counterparty}
+                onChange={e => update(i, 'counterparty', e.target.value)}
+                placeholder={ownerLabel}
+                className="px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-300"
+              />
+            )}
+          </div>
+        )}
+
+        {/* 流動性（資產）或緊急程度（負債）— 所有卡片都可調 */}
+        {isAsset ? (
+          <div className="mt-2">
+            <label className="text-[10px] text-zinc-600 block mb-1">💧 流動性（多久能變現）</label>
+            <select
+              value={row.liquidity || 'instant'}
+              onChange={e => update(i, 'liquidity', e.target.value)}
+              className="w-full px-2 py-1.5 bg-zinc-800/60 border border-zinc-800 rounded text-zinc-300 text-xs">
+              {LIQUIDITY_LEVELS.map(l => (
+                <option key={l.key} value={l.key}>{l.label}（{l.desc}）</option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="mt-2">
+            <label className="text-[10px] text-zinc-600 block mb-1">⏰ 還款緊急程度</label>
+            <select
+              value={row.urgency || 'low'}
+              onChange={e => update(i, 'urgency', e.target.value)}
+              className="w-full px-2 py-1.5 bg-zinc-800/60 border border-zinc-800 rounded text-zinc-300 text-xs">
+              <option value="high">🔴 隨時可能被要求還</option>
+              <option value="medium">🟡 固定還款中</option>
+              <option value="low">🟢 暫時不用還 / 只還息</option>
+            </select>
+          </div>
+        )}
+
+        {/* 備註 — 可手動編輯 */}
+        <div className="mt-2">
+          <label className="text-[10px] text-zinc-600 block mb-1">📝 備註（可編輯）</label>
+          <textarea
+            value={row.note || ''}
+            onChange={e => update(i, 'note', e.target.value)}
+            placeholder="例：月還利息 X 萬、年利率 X%、到期日..."
+            rows={row.note && row.note.length > 30 ? 2 : 1}
+            className="w-full px-2 py-1.5 bg-zinc-800/60 border border-zinc-800 hover:border-zinc-700 focus:border-blue-500 focus:bg-zinc-800 rounded text-zinc-300 text-[11px] leading-relaxed resize-none focus:outline-none transition"
+          />
+        </div>
+      </div>
+    );
+  };
+
+  const currentRows = section === 'asset' ? assetRows : liabRows;
+  const setCurrentRows = section === 'asset' ? setAssetRows : setLiabRows;
+  const filledCount = currentRows.filter(r => parseFloat(r.amount) > 0).length;
+
+  return (
+    <div className="fixed inset-0 bg-black/90 z-50 flex flex-col">
+      {/* Header */}
+      <div className="bg-zinc-950 border-b border-zinc-800 px-4 py-3 flex items-center justify-between sticky top-0">
+        <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200 p-1">
+          <X className="w-6 h-6" />
+        </button>
+        <h3 className="font-bold text-zinc-100 text-base flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-blue-400" />
+          新增{scope === 'company' ? '公司' : '個人'}紀錄
+        </h3>
+        <button
+          onClick={() => {
+            const validAssets = assetRows.filter(r => r.name && r.name.trim() && parseFloat(r.amount) > 0);
+            const validLiab = liabRows.filter(r => r.name && r.name.trim() && parseFloat(r.amount) > 0);
+
+            if (!date) {
+              setWarning('請選擇日期');
+              return;
+            }
+            if (validAssets.length === 0 && validLiab.length === 0) {
+              setWarning('請至少填一筆金額（金額要大於 0）');
+              return;
+            }
+
+            const existingOnDate = [...existingAssets, ...existingLiab].some(x => x.date === date);
+            if (existingOnDate && !confirmOverwrite) {
+              setWarning(`OVERWRITE:${date}`);
+              return;
+            }
+
+            setWarning('');
+            onSave(date, validAssets, validLiab);
+          }}
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium inline-flex items-center gap-1">
+          <Check className="w-4 h-4" />儲存
+        </button>
+      </div>
+
+      {/* 提示 banner — 取代 alert/confirm */}
+      {warning && (
+        <div className="bg-amber-500/15 border-b border-amber-500/40 px-4 py-3">
+          {warning.startsWith('OVERWRITE:') ? (
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="text-amber-200 text-sm">
+                ⚠️ {warning.split(':')[1]} 已有紀錄，儲存會覆蓋舊資料
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setWarning(''); }}
+                  className="px-3 py-1 text-sm text-zinc-300 bg-zinc-800 hover:bg-zinc-700 rounded">
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    setConfirmOverwrite(true);
+                    setWarning('');
+                    const validAssets = assetRows.filter(r => r.name && r.name.trim() && parseFloat(r.amount) > 0);
+                    const validLiab = liabRows.filter(r => r.name && r.name.trim() && parseFloat(r.amount) > 0);
+                    onSave(date, validAssets, validLiab);
+                  }}
+                  className="px-3 py-1 text-sm text-white bg-amber-600 hover:bg-amber-500 rounded font-medium">
+                  確認覆蓋
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-amber-200 text-sm">⚠️ {warning}</div>
+              <button onClick={() => setWarning('')} className="text-amber-300 hover:text-amber-100">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 日期 + 切換 */}
+      <div className="bg-zinc-950 border-b border-zinc-800 px-4 py-3 space-y-3">
+        <div>
+          <label className="text-xs text-zinc-500 block mb-1">📅 日期</label>
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            className="w-full px-3 py-2.5 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-100"
+          />
+          {lastDate && <p className="text-[11px] text-zinc-500 mt-1">金額已預填 {lastDate} 的數字</p>}
+        </div>
+
+        {/* 資產/負債切換 */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setSection('asset')}
+            className={`py-2.5 rounded-lg text-sm font-medium transition ${
+              section === 'asset'
+                ? 'bg-emerald-600/30 border border-emerald-500 text-emerald-300'
+                : 'bg-zinc-900 border border-zinc-800 text-zinc-500'
+            }`}>
+            💰 資產 <span className="text-xs ml-1">({assetRows.filter(r => parseFloat(r.amount) > 0).length}/{assetRows.length})</span>
+          </button>
+          <button
+            onClick={() => setSection('liab')}
+            className={`py-2.5 rounded-lg text-sm font-medium transition ${
+              section === 'liab'
+                ? 'bg-rose-600/30 border border-rose-500 text-rose-300'
+                : 'bg-zinc-900 border border-zinc-800 text-zinc-500'
+            }`}>
+            📉 負債 <span className="text-xs ml-1">({liabRows.filter(r => parseFloat(r.amount) > 0).length}/{liabRows.length})</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 卡片區 — 可滾 */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-24">
+        <div className="space-y-3">
+          {currentRows.map((row, i) => renderCard(row, i, section === 'asset'))}
+
+          {/* 加新項目卡片 */}
+          <button
+            onClick={() => setCurrentRows([...currentRows, makeBlank(section === 'asset')])}
+            className="w-full py-4 rounded-2xl border-2 border-dashed border-zinc-700 text-zinc-500 hover:border-blue-500 hover:text-blue-400 transition inline-flex items-center justify-center gap-2">
+            <Plus className="w-5 h-5" />
+            新增{section === 'asset' ? '資產' : '負債'}項目
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+ReactDOM.createRoot(document.getElementById('root')).render(<AssetDashboard />);
+</script>
+</body>
+</html>
